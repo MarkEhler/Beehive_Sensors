@@ -8,7 +8,8 @@
 //#include <DHT.h> // for the DHT sensor
 #include <RTClib.h> // for the RTC
 
-const int chipSelect = 10; 
+int const chipSelect = 10; 
+int const interruptPin = 2;
 
 // Create a file to store the data
 File myFile;
