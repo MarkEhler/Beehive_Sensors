@@ -1,152 +1,97 @@
-// read air pollution sensors and print data to serial monitor
-// print data to sd card , deliminated
-// read data and RTC
+// =====================================================================
+//  rtc_test - first hardware test: ZS-042 DS3231 clock module only
+//
+//  Prints the time and the DS3231's built-in temperature every 2 s.
+//  Board: Maduino  -> Tools > Board "Arduino Pro or Pro Mini",
+//                     Processor "ATmega328P (3.3V, 8 MHz)"
+//         UNO      -> "Arduino Uno"
+//  Library: RTClib (by Adafruit)
+//  Serial Monitor: 9600 baud
+//
+//  Breadboard: ZS-042 header in row F, holes 10-15
+//     F10 GND  -> board GND
+//     F11 VCC  -> board 3V3   (3.3V, NOT 5V - see coin-cell note)
+//     F12 SDA  -> A4
+//     F13 SCL  -> A5
+//     F14 SQW  -> not connected (later: wake-up alarm)
+//     F15 32K  -> not connected
+//  Jumper wires go in G-J of the same numbered row (e.g. J10 for GND).
+//
+//  Serial commands: c = set clock to the time this sketch was compiled
+//                   s = rescan the I2C bus
+// =====================================================================
 
-#include <SD.h>
+#include <Wire.h>
+#include <RTClib.h>
 
-#define Asense1 A1
-#define Asense2 A2
-#define Asense3 A3
-const int Ro = 330;
-//ppm formula
-//Pull-Down Resistance
-const int RLOAD1 = 1;
-const int RLOAD10 = 10;
-//resistance in open air
+RTC_DS3231 rtc;
+bool rtcOk = false;
 
-// Define timeout in ms
-#define TIMEOUT 3000
+void scanI2C() {
+  Serial.println(F("I2C scan:"));
+  uint8_t found = 0;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.print(F("  0x")); if (a < 16) Serial.print('0'); Serial.print(a, HEX);
+      if (a == 0x68) Serial.print(F("  <- DS3231 clock"));
+      if (a == 0x57) Serial.print(F("  <- AT24C32 EEPROM on the ZS-042"));
+      Serial.println();
+      found++;
+    }
+  }
+  if (!found) {
+    Serial.println(F("  nothing found - check VCC/GND, and SDA->A4, SCL->A5"));
+    Serial.println(F("  (on the breadboard: is each jumper in the same numbered row?)"));
+  }
+}
 
-
-// Alarmlevels to be modified
-#define TEMPALARM 30
-#define HUMALARM 65
-#define CO2ALARM 1000
-
-// Set the low, mid and high thresolds for flagging data?
-// T in deg Celsius
-//float tempthreshold[3] = {
-// 15, 20, 25};
-// CO2 in ppm
-//float airthreshold[3] = {
-//  200, 200, 300};
-// Rel Humidity in percent
-//float humthreshold[3] = {
-//  35, 45, 60};
-
-/*
-// Initialize the gas Sensor
-MQ135 gasSensori = MQ135(Asense1);
-MQ135 gasSensorii = MQ135(Asense2);
-MQ135 gasSensoriii = MQ135(Asense3);
-*/
+void setToCompileTime() {
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  Serial.println(F("Clock set to compile time."));
+}
 
 void setup() {
-  pinMode(Asense1,INPUT);
-  pinMode(Asense2,INPUT);
-  pinMode(Asense3,INPUT);
-  //Set up the serial terminal
-  Serial.begin(9600); 
+  Serial.begin(9600);
+  delay(200);
+  Serial.println();
+  Serial.println(F("=== rtc_test: ZS-042 / DS3231 ==="));
 
-  int Row[] = {};
-  
-  
+  Wire.begin();
+  scanI2C();
 
-}
-/*
-void loop() {
-  // Wait a few seconds between measurements.
-  // TODO: This is not ideal - better put the Arduino to sleep here
-  delay(TIMEOUT);
-
-  // Reading temperature or humidity takes about 250 milliseconds!
-  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  float h = dht.readHumidity();
-  // Read temperature as Celsius
-  float t = dht.readTemperature();
-  // Read temperature as Fahrenheit - in case you still don't use the SI
-  //float f = dht.readTemperature(true);
-
-  // Check if any reads failed and exit early (to try again).
-  if (isnan(h) || isnan(t)) {
-    Serial.println("Failed to read from DHT sensor!");
+  rtcOk = rtc.begin();
+  if (!rtcOk) {
+    Serial.println(F("DS3231 not found at 0x68. Fix wiring, then press RESET."));
     return;
   }
-*/
-  float getResistance() {
-  int val = analogRead(A2);
-  return ((1023. / (float)val) - 1.) * RLOAD10;
+  Serial.println(F("DS3231 found."));
+  if (rtc.lostPower()) {
+    Serial.println(F("Clock lost power (new/dead coin cell?)."));
+    setToCompileTime();
+  }
+  Serial.println(F("Note: the DS3231 updates its temperature every 64 s, "
+                   "0.25 C steps, about +/-3 C accuracy."));
+  Serial.println(F("Commands: c = set clock, s = I2C scan"));
 }
+
 void loop() {
-  
-  // after burnin time sensors need 3 minutes before readings are stable
-  delay(3000); //*60
- float Vrl = 5.0 * analogRead(Asense2) / 1023;
- float Rs = 1 * ( 5.0 - Vrl) / Vrl;
- int ratio = 116.6 * pow((Rs/Ro), -2.76);
-// ratio = constrain(ratio, 0, 30);  // 400 .. 5000
- Serial.print ( "CO : ");
- Serial.println(Rs);
- Serial.println(ratio);
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == 's') scanI2C();
+    if (c == 'c' && rtcOk) setToCompileTime();
+  }
 
-/*
-//  Calculate resistance  set with R0
-
-  int co2nowi[10];
-  int co2nowii[10];
-  int co2nowiii[10];//int array for co2 readings
-  int co2rawi = 0;                               //int for raw value of co2
-  int co2rawii = 0;
-  int co2rawiii = 0;
-  int co2compi = 0;
-  int co2compii = 0;
-  int co2compiii = 0;//int for compensated co2 
-  int co2ppm = 0;                               //int for calculated ppm
-  int z = 0;
-  int zz = 0;
-  int zzz = 0;                                  //int for averaging
-
-  for (int x = 0;x<10;x++){                   //samplpe co2 10x over 2 seconds
-  co2nowi[x]=analogRead(Asense1);
-  co2nowii[x]=analogRead(Asense1);
-  co2nowiii[x]=analogRead(Asense1);
-  delay(200);
-}
-
-  for (int x = 0;x<10;x++){                     //add samples together
-      z=z + co2nowi[x];
-      zz=zz + co2nowii[x];
-      zzz=zzz + co2nowiii[x];
-    }
-    co2rawi = z/10; 
-    co2rawii = zz/10;
-    co2rawiii = zzz/10;//divide samples by 10
-    co2compi = co2rawi - Ro;
-    co2compii = co2rawii - Ro;
-    co2compiii = co2rawiii - Ro;
-    //get compensated value
-//    co2ppm = map(co2comp,0,1023,400,5000);    
-
-
-  Serial.print("T: "); 
-  Serial.print(t);
-  Serial.print(" *C\t");
-  Serial.print("H: "); 
-  Serial.print(h);
-  Serial.print(" %\t");
-
-
-  Serial.print("Sensor 1 RZero: ");
-  Serial.print(co2compi);
-  Serial.println(" kOhm");
-  Serial.println("#####");
-  Serial.print("Sensor 1 RZero: ");
-  Serial.print(co2compii);
-  Serial.println(" kOhm");
-  Serial.println("#####");
-  Serial.print("Sensor 1 RZero: ");
-  Serial.print(co2compiii);
-  Serial.println(" kOhm");
-  */
-
+  static uint32_t last = 0;
+  if (rtcOk && millis() - last >= 2000) {
+    last = millis();
+    DateTime n = rtc.now();
+    char buf[20];
+    snprintf(buf, sizeof buf, "%04d-%02d-%02d %02d:%02d:%02d",
+             n.year(), n.month(), n.day(), n.hour(), n.minute(), n.second());
+    Serial.print(buf);
+    Serial.print(F("   temp "));
+    Serial.print(rtc.getTemperature(), 2);
+    Serial.println(F(" C"));
+  }
 }
